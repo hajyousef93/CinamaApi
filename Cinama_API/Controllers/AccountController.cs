@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using System.Web;
 using Cinama_API.Data;
@@ -8,6 +9,9 @@ using Cinama_API.Data.Repository;
 using Cinama_API.Models;
 using Cinama_API.ModelViews;
 using Cinama_API.Services;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -136,8 +140,16 @@ namespace Cinama_API.Controllers
                 //set role name for user
                 if (await _roleManager.RoleExistsAsync("User"))
                 {
-                    await _manager.AddToRoleAsync(user, "User");
+                    if (!await _manager.IsInRoleAsync(user,"User"))
+                    {
+                        await _manager.AddToRoleAsync(user, "User");
+                    }
+                    
                 }
+                var roleName = await GetRoleNameByUserId(user.Id);
+                if (roleName != null)
+                    AddCookies(user.UserName, user.Id, roleName, model.RememberMe);
+               
                 return StatusCode(StatusCodes.Status200OK);
             }
             else if (result.IsLockedOut)
@@ -147,6 +159,24 @@ namespace Cinama_API.Controllers
             return StatusCode(StatusCodes.Status204NoContent);
         }
 
+        [HttpGet]
+        [Route("Logout")]
+        public async Task<IActionResult> Logout()
+        {
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return Ok();
+        }
+
+        private async Task<string> GetRoleNameByUserId(string userId)
+        {
+            var userRole = await _db.UserRoles.FirstOrDefaultAsync(x => x.UserId == userId);
+            if (userRole!=null)
+            {
+                return await _db.Roles.Where(x => x.Id == userRole.RoleId).Select(x => x.Name).FirstOrDefaultAsync();
+            }
+            return null;
+        }
+        [Authorize]
         [HttpGet]
         [Route("GetAllUser")]
         public async Task<ActionResult<IEnumerable<ApplicationUser>>> GetAllUser()
@@ -193,6 +223,57 @@ namespace Cinama_API.Controllers
                     Name = "User"
                 };
                 await _roleManager.CreateAsync(role);
+            }
+        }
+
+
+        /// <summary>
+        /// Add Cookies
+        /// </summary>
+       
+        public async void AddCookies(string username, string userId, string roleName, bool remember)
+        {
+            var claim = new List<Claim>
+            {
+                new Claim(ClaimTypes.Name,username),
+                new Claim(ClaimTypes.NameIdentifier,userId),
+                new Claim(ClaimTypes.Role,roleName),
+
+            };
+
+            var claimIdentity = new ClaimsIdentity(claim, CookieAuthenticationDefaults.AuthenticationScheme);
+            if (remember)
+            {
+                var authProperties = new AuthenticationProperties
+                {
+                    AllowRefresh = true,
+                    IsPersistent = remember,
+                    ExpiresUtc = DateTime.UtcNow.AddDays(10)
+                };
+
+                await HttpContext.SignInAsync
+               (
+                   CookieAuthenticationDefaults.AuthenticationScheme,
+                   new ClaimsPrincipal(claimIdentity),
+                   authProperties
+               );
+
+            }
+            else 
+            {
+                var authProperties = new AuthenticationProperties
+                {
+                    AllowRefresh = true,
+                    IsPersistent = remember,
+                    ExpiresUtc = DateTime.UtcNow.AddMinutes(30)
+                };
+                await HttpContext.SignInAsync
+              (
+                  CookieAuthenticationDefaults.AuthenticationScheme,
+                  new ClaimsPrincipal(claimIdentity),
+                  authProperties
+              );
+
             }
         }
     }
