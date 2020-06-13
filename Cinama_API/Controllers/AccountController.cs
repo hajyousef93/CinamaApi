@@ -21,33 +21,34 @@ namespace Cinama_API.Controllers
 {
     [Route("[controller]")]
     [ApiController]
+    [Authorize]
     public class AccountController : ControllerBase
     {
         private readonly ApplicationDb _db;
-        private readonly IAuthRepository _auth;
+
         private readonly UserManager<ApplicationUser> _manager;
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly RoleManager<ApplicationRole> _roleManager;
 
-        public AccountController(ApplicationDb db,IAuthRepository auth, UserManager<ApplicationUser> manager, SignInManager<ApplicationUser> signInManager,RoleManager<ApplicationRole>roleManager)
+        public AccountController(ApplicationDb db, UserManager<ApplicationUser> manager, SignInManager<ApplicationUser> signInManager, RoleManager<ApplicationRole> roleManager)
         {
             _db = db;
-            _auth = auth;
             _manager = manager;
             _signInManager = signInManager;
             _roleManager = roleManager;
         }
+        [AllowAnonymous]
         [HttpPost]
         [Route("Register")]
         public async Task<IActionResult> Register(RegisterModel model)
         {
             if (ModelState.IsValid)
             {
-                if (await _auth.EmailExists(model.Email))
+                if (await EmailExists(model.Email))
                 {
                     return BadRequest("Email is used");
                 }
-                if (await _auth.UserExists(model.Username))
+                if (await UserExists(model.Username))
                 {
                     return BadRequest("Username is used");
                 }
@@ -88,7 +89,7 @@ namespace Cinama_API.Controllers
             return StatusCode(StatusCodes.Status400BadRequest);
         }
 
-
+        [AllowAnonymous]
         [HttpGet]
         [Route("ConfirmEmail")]
         public async Task<IActionResult> ConfirmEmail(string id, string token)
@@ -114,6 +115,7 @@ namespace Cinama_API.Controllers
 
         }
 
+        [AllowAnonymous]
         [HttpPost]
         [Route("Login")]
         public async Task<IActionResult> Login(LoginModel model)
@@ -133,6 +135,12 @@ namespace Cinama_API.Controllers
             {
                 return Unauthorized("Email is not Confirm yet!!");
             }
+            var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var username = HttpContext.User.Identity.Name;
+            if (id !=null && username != null)
+            {
+                return BadRequest($"user id:{id}is Exists");
+            }
 
             var result = await _signInManager.PasswordSignInAsync(user, model.Password, model.RememberMe, true);
             if (result.Succeeded)
@@ -140,16 +148,16 @@ namespace Cinama_API.Controllers
                 //set role name for user
                 if (await _roleManager.RoleExistsAsync("User"))
                 {
-                    if (!await _manager.IsInRoleAsync(user,"User"))
+                    if (!await _manager.IsInRoleAsync(user, "User")&& !await _manager.IsInRoleAsync(user, "Admin"))
                     {
                         await _manager.AddToRoleAsync(user, "User");
                     }
-                    
+
                 }
                 var roleName = await GetRoleNameByUserId(user.Id);
                 if (roleName != null)
-                    AddCookies(user.UserName, user.Id, roleName, model.RememberMe);
-               
+                    AddCookies(user.UserName, user.Id, roleName, model.RememberMe,user.Email);
+
                 return StatusCode(StatusCodes.Status200OK);
             }
             else if (result.IsLockedOut)
@@ -158,7 +166,17 @@ namespace Cinama_API.Controllers
             }
             return StatusCode(StatusCodes.Status204NoContent);
         }
+        private async Task<bool> UserExists(string Username)
+        {
+            return await _db.Users.AnyAsync(x => x.UserName == Username);
 
+        }
+        private async Task<bool> EmailExists(string Email)
+        {
+            return await _db.Users.AnyAsync(x => x.Email == Email);
+        }
+
+        [AllowAnonymous]
         [HttpGet]
         [Route("Logout")]
         public async Task<IActionResult> Logout()
@@ -170,24 +188,24 @@ namespace Cinama_API.Controllers
         private async Task<string> GetRoleNameByUserId(string userId)
         {
             var userRole = await _db.UserRoles.FirstOrDefaultAsync(x => x.UserId == userId);
-            if (userRole!=null)
+            if (userRole != null)
             {
                 return await _db.Roles.Where(x => x.Id == userRole.RoleId).Select(x => x.Name).FirstOrDefaultAsync();
             }
             return null;
         }
-        [Authorize]
+        [AllowAnonymous]
         [HttpGet]
         [Route("GetAllUser")]
         public async Task<ActionResult<IEnumerable<ApplicationUser>>> GetAllUser()
         {
             return await _db.Users.ToListAsync();
-            
+
         }
         private async Task CreateAdmin()
         {
             var admin = await _manager.FindByNameAsync("Admin");
-            if (admin== null)
+            if (admin == null)
             {
                 var user = new ApplicationUser
                 {
@@ -203,14 +221,14 @@ namespace Cinama_API.Controllers
                     {
                         await _manager.AddToRoleAsync(user, "Admin");
                     }
-                    
+
                 }
             }
         }
 
         private async Task CreateRole()
         {
-            if (_roleManager.Roles.Count()<1)
+            if (_roleManager.Roles.Count() < 1)
             {
                 var role = new ApplicationRole
                 {
@@ -226,16 +244,53 @@ namespace Cinama_API.Controllers
             }
         }
 
+        [Authorize]
+        [HttpGet]
+        [Route("CheckUserClaims/{email}&{role}")]
+        public  IActionResult CheckUserClaims(string email,string role)
+        {
+            var userEmail = User.FindFirst(ClaimTypes.Email)?.Value;
+            var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
+            var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (userEmail!=null && userRole!=null&& id!=null)
+            {
+                if (userEmail==email && userRole==role)
+                {
+                    return StatusCode(StatusCodes.Status200OK);
+                }
+            }
+            return StatusCode(StatusCodes.Status203NonAuthoritative);
+        }
+
+        [AllowAnonymous]
+        [HttpGet]
+        [Route("GetRoleName/{email}")]
+        public async Task<string> GetRoleName(string email)
+        {
+            var user = await _manager.FindByEmailAsync(email);
+            if (user!=null)
+            {
+                var userRole = await _db.UserRoles.FirstOrDefaultAsync(x => x.UserId == user.Id);
+                if (userRole != null)
+                {
+                    return await _db.Roles.Where(x => x.Id == userRole.RoleId).Select(x => x.Name).FirstOrDefaultAsync();
+                }
+            }
+           
+            return null;
+        }
+
 
         /// <summary>
         /// Add Cookies
         /// </summary>
-       
-        public async void AddCookies(string username, string userId, string roleName, bool remember)
+
+        private async void AddCookies(string username, string userId, string roleName, bool remember,string email)
         {
             var claim = new List<Claim>
             {
                 new Claim(ClaimTypes.Name,username),
+                new Claim(ClaimTypes.Email,email),
                 new Claim(ClaimTypes.NameIdentifier,userId),
                 new Claim(ClaimTypes.Role,roleName),
 
@@ -276,5 +331,6 @@ namespace Cinama_API.Controllers
 
             }
         }
+    
     }
 }

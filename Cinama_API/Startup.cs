@@ -82,7 +82,7 @@ namespace Cinama_API
             {
                 app.UseDeveloperExceptionPage();
             }
-            app.UseCors(x => x.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+            app.UseCors(x => x.WithOrigins("http://localhost:4200").AllowAnyMethod().AllowAnyHeader().AllowCredentials());
             app.UseHttpsRedirection();
 
             app.UseRouting();

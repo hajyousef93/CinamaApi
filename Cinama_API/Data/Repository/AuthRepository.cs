@@ -12,23 +12,10 @@ namespace Cinama_API.Data.Repository
 {
     public class AuthRepository : IAuthRepository
     {
-        private readonly ApplicationDb _db;
-        private readonly UserManager<ApplicationUser> _manager;
-
-        public AuthRepository(ApplicationDb db,UserManager<ApplicationUser>manager )
+        public Task<bool> EmailExists(string Email)
         {
-            _db = db;
-            _manager = manager;
+            throw new NotImplementedException();
         }
-
-       
-
-        public async Task<bool> EmailExists(string Email)
-        {
-            return await _db.Users.AnyAsync(x => x.Email == Email);
-        }
-
-      
 
         public Task<ApplicationUser> Login(string Email, string password, bool rememberMe)
         {
@@ -40,10 +27,9 @@ namespace Cinama_API.Data.Repository
             throw new NotImplementedException();
         }
 
-        public async Task<bool> UserExists(string Username)
+        public Task<bool> UserExists(string Username)
         {
-            return await _db.Users.AnyAsync(x => x.UserName == Username);
-
+            throw new NotImplementedException();
         }
     }
 }
