@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
+using System.Text;
 using System.Threading.Tasks;
 using System.Web;
 using Cinama_API.Data;
@@ -15,13 +16,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cinama_API.Controllers
 {
     [Route("[controller]")]
     [ApiController]
-    [Authorize]
+    [AllowAnonymous]
     public class AccountController : ControllerBase
     {
         private readonly ApplicationDb _db;
@@ -37,7 +39,7 @@ namespace Cinama_API.Controllers
             _signInManager = signInManager;
             _roleManager = roleManager;
         }
-        [AllowAnonymous]
+        
         [HttpPost]
         [Route("Register")]
         public async Task<IActionResult> Register(RegisterModel model)
@@ -67,16 +69,20 @@ namespace Cinama_API.Controllers
                     if (result.Succeeded)
                     {
                         var token = await _manager.GenerateEmailConfirmationTokenAsync(user);
-                        var ConfirmLink = Url.Action("ConfirmEmail", "Account", new
-                        {
-                            id = user.Id,
-                            token = HttpUtility.UrlEncode(token)
-                        }, Request.Scheme);
+                        //var ConfirmLinkAsp = Url.Action("ConfirmEmail", "Account", new
+                        //{
+                        //    id = user.Id,
+                        //    token = HttpUtility.UrlEncode(token)
+                        //}, Request.Scheme);
+                        var encodeToken = Encoding.UTF8.GetBytes(token);
+                        var newToken = WebEncoders.Base64UrlEncode(encodeToken);
+                        var ConfirmLink = $"http://localhost:4200/RegisterConfirm?ID={user.Id}&token={newToken}";
                         var txt = "Please confirm your registration at our site";
                         var link = "<a href=\"" + ConfirmLink + "\">Confirm registration</a>";
                         var subject = "Registeration  Confirm";
                         if (await SenderGridApi.Execute(user.Email, user.UserName, subject, txt, link))
                         {
+                           // return Ok(link);
                             return StatusCode(StatusCodes.Status200OK);
                         }
                     }
@@ -89,7 +95,7 @@ namespace Cinama_API.Controllers
             return StatusCode(StatusCodes.Status400BadRequest);
         }
 
-        [AllowAnonymous]
+        
         [HttpGet]
         [Route("ConfirmEmail")]
         public async Task<IActionResult> ConfirmEmail(string id, string token)
@@ -103,10 +109,13 @@ namespace Cinama_API.Controllers
             {
                 return StatusCode(StatusCodes.Status404NotFound);
             }
-            var result = await _manager.ConfirmEmailAsync(user, HttpUtility.UrlDecode(token));
+            var newToken = WebEncoders.Base64UrlDecode(token);
+            var encodeToken = Encoding.UTF8.GetString(newToken);
+            
+            var result = await _manager.ConfirmEmailAsync(user, encodeToken);
             if (result.Succeeded)
             {
-                return Ok("Registration Succeesed");
+                return Ok();
             }
             else
             {
@@ -115,7 +124,7 @@ namespace Cinama_API.Controllers
 
         }
 
-        [AllowAnonymous]
+        
         [HttpPost]
         [Route("Login")]
         public async Task<IActionResult> Login(LoginModel model)
@@ -164,7 +173,7 @@ namespace Cinama_API.Controllers
             {
                 return Unauthorized("User account is lockout");
             }
-            return StatusCode(StatusCodes.Status204NoContent);
+            return StatusCode(StatusCodes.Status400BadRequest);
         }
         private async Task<bool> UserExists(string Username)
         {
@@ -176,12 +185,18 @@ namespace Cinama_API.Controllers
             return await _db.Users.AnyAsync(x => x.Email == Email);
         }
 
-        [AllowAnonymous]
+       
         [HttpGet]
         [Route("Logout")]
         public async Task<IActionResult> Logout()
         {
-            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            var authProperties = new AuthenticationProperties
+            {
+                AllowRefresh = true,
+                IsPersistent = true,
+                ExpiresUtc = DateTime.UtcNow.AddDays(10)
+            };
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme, authProperties);
             return Ok();
         }
 
@@ -194,14 +209,8 @@ namespace Cinama_API.Controllers
             }
             return null;
         }
-        [AllowAnonymous]
-        [HttpGet]
-        [Route("GetAllUser")]
-        public async Task<ActionResult<IEnumerable<ApplicationUser>>> GetAllUser()
-        {
-            return await _db.Users.ToListAsync();
-
-        }
+       
+        
         private async Task CreateAdmin()
         {
             var admin = await _manager.FindByNameAsync("Admin");
@@ -262,7 +271,7 @@ namespace Cinama_API.Controllers
             return StatusCode(StatusCodes.Status203NonAuthoritative);
         }
 
-        [AllowAnonymous]
+        
         [HttpGet]
         [Route("GetRoleName/{email}")]
         public async Task<string> GetRoleName(string email)
@@ -278,6 +287,105 @@ namespace Cinama_API.Controllers
             }
            
             return null;
+        }
+        
+        [HttpGet]
+        [Route("RegistrationConfirm")]
+        public async Task<IActionResult> RegistrationConfirm(string ID, string token)
+        {
+            if (string.IsNullOrEmpty(ID) || string.IsNullOrEmpty(token))
+                return NotFound();
+
+            var user = await _manager.FindByIdAsync(ID);
+            if (user == null)
+                return NotFound();
+            var result = await _manager.ConfirmEmailAsync(user, HttpUtility.UrlDecode(token));
+            if (result.Succeeded)
+                return Ok("Registration Success");
+            else
+                return BadRequest(result.Errors);
+        }
+
+
+        
+        [HttpGet]
+        [Route("UserNameExist")]
+        public  async Task<IActionResult> UserNameExists(string username)
+        {
+            var Exist = await _db.Users.AnyAsync(x => x.UserName == username);
+            if (Exist)
+            {
+                return StatusCode(StatusCodes.Status200OK);
+            }
+            return BadRequest();
+
+        }
+
+        
+        [HttpGet]
+        [Route("EmailExist")]
+        public async Task<IActionResult> EmailExist(string email)
+        {
+            var Exist= await _db.Users.AnyAsync(x => x.Email == email);
+            if (Exist)
+            {
+                return StatusCode(StatusCodes.Status200OK);
+            }
+            return BadRequest();
+
+        }
+        [HttpGet]
+        [Route("ForgetPassword")]
+        public async Task<IActionResult> ForgetPassword(string email)
+        {
+            if (email==null)
+            {
+                return NotFound();
+            }
+            var user = await _manager.FindByEmailAsync(email);
+            if (user == null)
+            {
+                return NotFound();
+            }
+
+            var token = await _manager.GeneratePasswordResetTokenAsync(user);
+            var encodeToken = Encoding.UTF8.GetBytes(token);
+            var newToken = WebEncoders.Base64UrlEncode(encodeToken);
+            var ConfirmLink = $"http://localhost:4200/PasswordConfirm?ID={user.Id}&token={newToken}";
+            var txt = "Please confirm Password";
+            var link = "<a href=\"" + ConfirmLink + "\">Confirm Password</a>";
+            var subject = "Password  Confirm";
+            if (await SenderGridApi.Execute(user.Email, user.UserName, subject, txt, link))
+            {
+                // return Ok(link);
+                return new ObjectResult(new { token = newToken });
+            }
+            return StatusCode(StatusCodes.Status400BadRequest);
+
+        }
+
+        [HttpPost]
+        [Route("ResetPassword")]
+        public async Task<IActionResult> ResetPassword(ResetPasswordModel model)
+        {
+            if (ModelState.IsValid)
+            {
+                var user = await _manager.FindByIdAsync(model.Id);
+                if (user == null)
+                {
+                    return StatusCode(StatusCodes.Status404NotFound);
+                }
+                var newToken = WebEncoders.Base64UrlDecode(model.Token);
+                var encodeToken = Encoding.UTF8.GetString(newToken);
+
+                var result = await _manager.ResetPasswordAsync(user, encodeToken,model.Password);
+                if (result.Succeeded)
+                {
+                    return Ok();
+                }
+            }
+            return BadRequest();
+            
         }
 
 
