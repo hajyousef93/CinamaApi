@@ -1,6 +1,5 @@
 
 using Cinama_API.Data;
-using Cinama_API.Data.Repository;
 using Cinama_API.Data.Repository.Admin;
 using Cinama_API.Models;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -71,8 +70,10 @@ namespace Cinama_API
                 option.SlidingExpiration = true;
 
             });
+
+
             services.AddTransient<IAdminRepository, AdminRepository>();
-            //services.AddScoped<IAuthRepository, AuthRepository>();
+           //services.AddScoped<IAuthRepository, AuthRepository>();
             services.AddCors();
         }
 

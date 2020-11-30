@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Cinama_API.Models;
@@ -13,14 +12,15 @@ namespace Cinama_API.Data.Repository.Admin
     {
         private readonly ApplicationDb _db;
         private readonly UserManager<ApplicationUser> _userManager;
-
-        public AdminRepository(ApplicationDb db,UserManager<ApplicationUser>userManager)
+        private readonly RoleManager<ApplicationRole> _roleManager;
+        public AdminRepository(ApplicationDb db,UserManager<ApplicationUser>userManager, RoleManager<ApplicationRole> roleManager)
         {
             _db = db;
             _userManager = userManager;
+            _roleManager = roleManager;
         }
 
-        public async Task<ApplicationUser> AddUser(AddUserModel model)
+        public async Task<ApplicationUser> AddUserAsync(AddUserModel model)
         {
             if (model == null)
             {
@@ -37,6 +37,14 @@ namespace Cinama_API.Data.Repository.Admin
             var result = await _userManager.CreateAsync(user, model.Password);
             if (result.Succeeded)
             {
+                if (await _roleManager.RoleExistsAsync("User"))
+                {
+                    if (!await _userManager.IsInRoleAsync(user, "User") && !await _userManager.IsInRoleAsync(user, "Admin"))
+                    {
+                        await _userManager.AddToRoleAsync(user, "User");
+                    }
+
+                }
                 return user;
             }
             return null;
@@ -102,6 +110,42 @@ namespace Cinama_API.Data.Repository.Admin
 
         }
 
+        public async Task<bool> EditUserRoleAsync(EditUserRoleModel model)
+        {
+            if(model.roleId==null || model.userId == null)
+            {
+                return false;
+            }
+            var user =await _db.Users.FirstOrDefaultAsync(x => x.Id == model.userId);
+            var role = await _db.Roles.FirstOrDefaultAsync(x => x.Id == model.roleId);
+            if (user == null || role==null)
+            {
+                return false;
+            }
+            var currentRoleId = await _db.UserRoles.Where(x => x.UserId == model.userId).Select(x => x.RoleId).FirstOrDefaultAsync();
+            var currentRoleName = await _db.Roles.Where(x => x.Id == currentRoleId).Select(x => x.Name).FirstOrDefaultAsync();
+            var newRoleName = await _db.Roles.Where(x => x.Id == model.roleId).Select(x => x.Name).FirstOrDefaultAsync();
+            if (await _userManager.IsInRoleAsync(user, currentRoleName))
+            {
+                var x = await _userManager.RemoveFromRoleAsync(user, currentRoleName);
+                if (x.Succeeded)
+                {
+                    var s =await _userManager.AddToRoleAsync(user, newRoleName);
+                    if (s.Succeeded)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        public async Task<IEnumerable<ApplicationRole>> GetRolesAsync()
+        {
+            return await _db.Roles.ToListAsync();
+        }
+
         public async Task<ApplicationUser> GetUser(string id)
         {
             if (id==null)
@@ -114,6 +158,41 @@ namespace Cinama_API.Data.Repository.Admin
                 return null;
             }
             return user;
+        }
+
+        public async Task<IEnumerable<UserRoleModel>> GetUserRoleAsync()
+        {
+            var query = await (
+                from userRole in _db.UserRoles
+                join user in _db.Users
+                on userRole.UserId equals user.Id
+                join role in _db.Roles
+                on userRole.RoleId equals role.Id
+                select new
+                {
+                    userRole.RoleId,
+                    role.Name,
+                    userRole.UserId,
+                    user.UserName
+                }).ToListAsync();
+
+            List<UserRoleModel> userRoleModels = new List<UserRoleModel>();
+            if (query.Count > 0)
+            {
+               
+                for (int i = 0; i < query.Count; i++)
+                {
+                    var model = new UserRoleModel
+                    {
+                        RoleId = query[i].RoleId,
+                        UserId = query[i].UserId,
+                        RoleName = query[i].Name,
+                        UserName = query[i].UserName
+                    };
+                    userRoleModels.Add(model); 
+                };
+                
+            }return userRoleModels;
         }
 
         public async Task<IEnumerable<ApplicationUser>> GetUsers()

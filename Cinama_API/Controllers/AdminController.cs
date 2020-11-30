@@ -13,7 +13,7 @@ namespace Cinama_API.Controllers
 {
     [Route("[controller]")]
     [ApiController]
-    //[Authorize(Roles ="Admin")]
+    [Authorize(Roles ="Admin")]
     public class AdminController : ControllerBase
     {
         private readonly IAdminRepository _repo;
@@ -73,7 +73,7 @@ namespace Cinama_API.Controllers
         {
             if(ModelState.IsValid)
             {
-                var user = await _repo.AddUser(model);
+                var user = await _repo.AddUserAsync(model);
                 if(user!=null)
                 {
                     return Ok();
@@ -95,6 +95,43 @@ namespace Cinama_API.Controllers
             if (result)
             {
                 return Ok();
+            }
+            return BadRequest();
+        }
+        
+        [HttpGet]
+        [Route("GetUserRole")]
+        public async Task<IEnumerable<UserRoleModel>> GetUserRole()
+        {
+            var usersRole = await _repo.GetUserRoleAsync();
+            if (usersRole == null)
+            {
+                return null;
+            }
+            return usersRole;
+        }
+        [HttpGet]
+        [Route("GetAllRoles")]
+        public async Task<IEnumerable<ApplicationRole>> GetAllRoles()
+        {
+            var roles = await _repo.GetRolesAsync();
+            if (roles == null)
+            {
+                return null;
+            }
+            return roles;
+        }
+        [HttpPut]
+        [Route("EditUserRole")]
+        public async Task<ActionResult> EditUserRole(EditUserRoleModel model)
+        {
+            if (ModelState.IsValid)
+            {
+                var x = await _repo.EditUserRoleAsync(model);
+                if (x)
+                {
+                    return Ok();
+                }
             }
             return BadRequest();
         }
